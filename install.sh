@@ -13,7 +13,7 @@ if [ ! -d "/usr/local" ]; then
 fi
 
 # Download ir into /usr/local/bin
-curl https://raw.github.com/suderman/ir/master/symlink -o /usr/local/bin/ir
+curl https://raw.github.com/suderman/ir/master/ir -o /usr/local/bin/ir
 
 # Set permissions
 chmod +x /usr/local/bin/ir
