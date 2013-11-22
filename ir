@@ -1,0 +1,156 @@
+#!/usr/bin/env ruby
+
+# 2013 Jon Suderman
+# https://github.com/suderman/ir/
+
+require 'rubygems'
+require 'optparse'
+require 'yaml'
+require 'fileutils'
+include FileUtils
+
+
+class IR
+
+  def initialize(device, command, options)
+    @options = options
+
+    # Path to where .ir yaml file is loaded from
+    ir_yml = File.expand_path("~/.ir") || File.expand_path("./ir.yml")
+
+    # Ensure the yaml file exists
+    if File.file? ir_yml
+
+      # Process the yaml file
+      begin
+        @db = YAML::load File.open(ir_yml)
+
+        if device and command
+          run_command_for device, command
+        elsif device
+          list_commands_for device
+        else
+          list_devices
+        end
+
+      # Error message if the yaml file is malformed
+      rescue Exception => se
+        puts red("[error]#{se.to_s.split(':').last}") 
+      end
+
+    # Error message if the yaml file cannot be found
+    else
+      puts red("[error] \"#{ir_yml}\" not found!") 
+    end
+
+  end
+
+  def list_devices
+    puts gray("=> List of all devices: ")
+    devices = ""
+    @db['devices'].each do |key, val|
+      devices << "#{key} "
+    end
+    puts blue(devices)
+    puts ""
+  end
+
+  def list_commands_for(device)
+    if @db['devices'].has_key? device
+      puts gray("=> List of all commands for ") + green(device) + gray(": ")
+      commands = ""
+      @db['devices'][device]['commands'].each do |key, val|
+        commands << "#{key} "
+      end
+      puts blue(commands)
+      puts ""
+    else
+      list_devices
+    end
+  end
+
+  def run_command_for(device, command)
+    if @db['devices'].has_key? device
+      if @db['devices'][device]['commands'].has_key? command
+
+        # Build command
+        s = settings_for device
+        cmd = ['sendir',
+                   s['module'].to_s + ':' + s['connector'].to_s,
+                   s['id'],
+                   s['frequency'],
+                   s['repeat'],
+                   s['offset']
+                  ].join ','
+        cmd << ',' + @db['devices'][device]['commands'][command] + '\r'
+        shell = 'echo "' + cmd + cmd + '" | nc ' + s['ip'].to_s + ' ' + s['port'].to_s
+
+        # Print out commands optionally
+        puts yellow(cmd) if @options[:ir]
+        puts yellow(shell) if @options[:shell]
+
+        # Run command and print results on error
+        output = `#{shell} 2>&1`
+        puts red(output) unless output.empty?
+
+      else
+        list_commands_for device
+      end
+    else
+      list_devices
+    end
+  end
+
+  def settings_for(device)
+    settings = {}
+    settings['ip'] = @db['devices'][device]['ip'] || @db['ip']
+    settings['port'] = @db['devices'][device]['port'] || @db['port']
+    settings['module'] = @db['devices'][device]['module'] || @db['module']
+    settings['connector'] = @db['devices'][device]['connector'] || @db['connector']
+    settings['id'] = @db['devices'][device]['id'] || @db['id']
+    settings['frequency'] = @db['devices'][device]['frequency'] || @db['frequency']
+    settings['repeat'] = @db['devices'][device]['repeat'] || @db['repeat']
+    settings['offset'] = @db['devices'][device]['offset'] || @db['offset']
+    settings
+  end
+
+  # Ask for permission; skip if force is enabled
+  def ask(prompt)
+    return true if @options[:force]
+    print yellow("#{prompt} [y/n]"), ' '
+    $stdin.gets.strip.match /^y/i
+  end
+
+
+  # Pretty colours
+  def red(text)    "\033[31m#{text}\033[m" end
+  def green(text)  "\033[32m#{text}\033[m" end
+  def yellow(text) "\033[33m#{text}\033[m" end
+  def blue(text)   "\033[34m#{text}\033[m" end
+  def gray(text)   "\033[37m#{text}\033[m" end
+
+end
+
+
+# Default values for options
+options = { :ir => false, :shell => false, :help => false }
+
+# Option parser
+opt_parser = OptionParser.new do |opt|
+  opt.banner = "Usage: ir DEVICE COMMAND"
+  opt.on("-i","--ir","print ir command") { options[:ir] = true }
+  opt.on("-s","--shell","print shell command") { options[:shell] = true }
+  opt.on("-h","--help","help") { options[:help] = true }
+end
+
+opt_parser.parse!
+
+# Get arguments
+device = ARGV[0] || nil
+command = ARGV[1] || nil 
+options[:help] = true unless (device and command)
+
+# Make it happen
+IR.new device, command, options
+
+puts opt_parser if options[:help]
